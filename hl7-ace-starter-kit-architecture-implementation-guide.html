@@ -1,0 +1,794 @@
+
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>HL7 ACE Starter Kit</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", system-ui, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    background: #ffffff;
+    color: #1f2328;
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 24px 16px 40px;
+  }
+  h1 { font-size: 1.45rem; font-weight: 700; margin-bottom: 4px; }
+  h2 { font-size: 1.1rem; font-weight: 600; margin: 28px 0 10px; color: #1f2328; }
+  h3 { font-size: 0.95rem; font-weight: 600; margin: 16px 0 6px; color: #3b82d4; }
+  p  { margin-bottom: 10px; color: #1f2328; }
+  .subtitle { color: #57606a; font-size: 0.9rem; margin-bottom: 24px; }
+  .badge-row { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 24px; }
+  .badge {
+    font-size: 11px; font-weight: 600; padding: 3px 10px;
+    border-radius: 12px; background: #f7f8fa; border: 1px solid #e5e7eb;
+    color: #57606a;
+  }
+  .badge.blue   { background: #eff6ff; border-color: #bfdbfe; color: #2563eb; }
+  .badge.purple { background: #f5f3ff; border-color: #ddd6fe; color: #7c3aed; }
+  .badge.green  { background: #f0fdf4; border-color: #bbf7d0; color: #16a34a; }
+
+  /* ── Architecture diagram ─────────────────────────────────────────── */
+  .arch-box {
+    background: #f7f8fa; border: 1px solid #e5e7eb;
+    border-radius: 8px; padding: 20px; margin-bottom: 24px; overflow-x: auto;
+  }
+  .arch-svg { width: 100%; max-width: 720px; display: block; margin: 0 auto; }
+
+  /* ── Pipeline steps ───────────────────────────────────────────────── */
+  .pipeline {
+    display: flex; flex-direction: column; gap: 0;
+    margin-bottom: 24px;
+  }
+  .pipeline-step {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 14px 16px; border: 1px solid #e5e7eb; background: #fff;
+    border-radius: 0;
+  }
+  .pipeline-step:first-child { border-radius: 8px 8px 0 0; }
+  .pipeline-step:last-child  { border-radius: 0 0 8px 8px; }
+  .pipeline-step + .pipeline-step { border-top: none; }
+  .step-num {
+    min-width: 28px; height: 28px; border-radius: 50%;
+    background: #3b82d4; color: #fff;
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .step-num.ai { background: #7c5cd8; }
+  .step-body h4 { font-size: 0.9rem; font-weight: 600; margin-bottom: 2px; }
+  .step-body p  { font-size: 0.82rem; color: #57606a; margin: 0; }
+  .step-tag {
+    font-size: 10px; font-weight: 600; padding: 1px 7px;
+    border-radius: 10px; margin-left: 6px;
+    vertical-align: middle;
+  }
+  .tag-esql   { background: #eff6ff; color: #2563eb; border: 1px solid #bfdbfe; }
+  .tag-java   { background: #fff7ed; color: #c2410c; border: 1px solid #fed7aa; }
+  .tag-ai     { background: #f5f3ff; color: #7c3aed; border: 1px solid #ddd6fe; }
+  .tag-mq     { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+  .tag-http   { background: #f7f8fa; color: #57606a; border: 1px solid #e5e7eb; }
+
+  /* ── File tree ────────────────────────────────────────────────────── */
+  .file-tree {
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 12.5px;
+    background: #f7f8fa; border: 1px solid #e5e7eb;
+    border-radius: 8px; padding: 18px 20px;
+    margin-bottom: 24px; line-height: 1.9;
+    overflow-x: auto;
+  }
+  .ft-dir  { color: #1f2328; font-weight: 600; }
+  .ft-file { color: #57606a; }
+  .ft-key  { color: #3b82d4; font-weight: 600; }
+  .ft-note { color: #57606a; font-style: italic; font-size: 11.5px; }
+
+  /* ── Message type table ───────────────────────────────────────────── */
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 13px; }
+  th {
+    background: #f7f8fa; border: 1px solid #e5e7eb;
+    padding: 8px 12px; text-align: left; font-weight: 600;
+    color: #57606a; font-size: 12px;
+  }
+  td {
+    border: 1px solid #e5e7eb;
+    padding: 8px 12px; vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #fafbfc; }
+  .urgency-critical { color: #dc2626; font-weight: 700; }
+  .urgency-high     { color: #d97706; font-weight: 600; }
+  .urgency-medium   { color: #2563eb; }
+  .urgency-low      { color: #16a34a; }
+
+  /* ── Agent card grid ─────────────────────────────────────────────── */
+  .agent-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 12px; margin-bottom: 24px;
+  }
+  @media(max-width: 540px) { .agent-grid { grid-template-columns: 1fr; } }
+  .agent-card {
+    border: 1px solid #e5e7eb; border-radius: 8px;
+    padding: 14px 16px; background: #fff;
+  }
+  .agent-card h4 {
+    font-size: 0.88rem; font-weight: 700; margin-bottom: 6px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .agent-icon {
+    width: 22px; height: 22px; border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 12px; color: #fff; flex-shrink: 0;
+  }
+  .ic-classify { background: #3b82d4; }
+  .ic-validate { background: #16a34a; }
+  .ic-enrich   { background: #d97706; }
+  .ic-summary  { background: #7c5cd8; }
+  .agent-card ul {
+    list-style: none; padding: 0;
+    font-size: 12px; color: #57606a; line-height: 1.7;
+  }
+  .agent-card li::before { content: "→ "; color: #3b82d4; }
+
+  /* ── Demo output ─────────────────────────────────────────────────── */
+  .demo-panel {
+    background: #0d1117; border-radius: 8px;
+    padding: 18px 20px; margin-bottom: 24px;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 12px; line-height: 1.7; overflow-x: auto;
+  }
+  .c-green  { color: #3fb950; }
+  .c-yellow { color: #d29922; }
+  .c-red    { color: #f85149; }
+  .c-blue   { color: #79c0ff; }
+  .c-purple { color: #d2a8ff; }
+  .c-gray   { color: #8b949e; }
+  .c-white  { color: #e6edf3; }
+
+  /* ── Key design decisions ─────────────────────────────────────────── */
+  .decision-list { list-style: none; padding: 0; margin-bottom: 24px; }
+  .decision-list li {
+    padding: 12px 14px; border: 1px solid #e5e7eb; border-radius: 6px;
+    margin-bottom: 8px; font-size: 13px; display: flex; gap: 10px;
+  }
+  .decision-list li:last-child { margin-bottom: 0; }
+  .dec-num {
+    min-width: 22px; height: 22px; background: #f7f8fa;
+    border: 1px solid #e5e7eb; border-radius: 50%;
+    font-size: 11px; font-weight: 700; color: #57606a;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .dec-body strong { display: block; font-size: 0.84rem; margin-bottom: 2px; }
+  .dec-body span { color: #57606a; font-size: 12px; }
+
+  /* ── Test results ─────────────────────────────────────────────────── */
+  .test-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 10px; margin-bottom: 24px;
+  }
+  @media(max-width: 480px) { .test-grid { grid-template-columns: 1fr 1fr; } }
+  .test-card {
+    border: 1px solid #e5e7eb; border-radius: 8px;
+    padding: 12px; text-align: center;
+  }
+  .test-num  { font-size: 1.6rem; font-weight: 700; color: #16a34a; }
+  .test-lbl  { font-size: 11px; color: #57606a; margin-top: 2px; }
+  .test-pass { font-size: 11px; color: #16a34a; font-weight: 600; }
+
+  /* ── Footer ──────────────────────────────────────────────────────── */
+  footer {
+    border-top: 1px solid #e5e7eb; margin-top: 36px;
+    padding-top: 14px; text-align: center;
+    font-size: 12px; color: #8b949e;
+  }
+  .divider { border: none; border-top: 1px solid #e5e7eb; margin: 28px 0; }
+</style>
+</head>
+<body>
+
+<h1>HL7 Enablement Starter Kit for IBM ACE</h1>
+<p class="subtitle">Agentic AI–Driven Healthcare Messaging  ·  Hackathon Edition  ·  IBM App Connect Enterprise 12.x</p>
+
+<div class="badge-row">
+  <span class="badge blue">IBM ACE 12.x</span>
+  <span class="badge blue">HL7 v2.x</span>
+  <span class="badge purple">IBM watsonx.ai</span>
+  <span class="badge purple">Granite LLM</span>
+  <span class="badge green">ADT · ORU · ORM</span>
+  <span class="badge">IBM MQ 9.x</span>
+  <span class="badge">Node.js 18</span>
+  <span class="badge green">16/16 Tests Passing</span>
+</div>
+
+
+<h2>Architecture Overview</h2>
+
+<style>
+  /* ── New Architecture Diagram ───────────────────────────────────────── */
+  .arch-new { margin-bottom: 24px; }
+
+  .arch-zones {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 0;
+  }
+  .arch-zone-label {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    padding: 6px 0 8px;
+    border-radius: 8px 8px 0 0;
+  }
+  .az-blue   { background: #eff6ff; color: #2563eb; border: 1.5px solid #bfdbfe; border-bottom: none; }
+  .az-green  { background: #f0fdf4; color: #16a34a; border: 1.5px solid #bbf7d0; border-bottom: none; }
+  .az-purple { background: #f5f3ff; color: #7c3aed; border: 1.5px solid #ddd6fe; border-bottom: none; }
+
+  .arch-panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    align-items: start;
+  }
+  .arch-panel {
+    border-radius: 0 0 8px 8px;
+    padding: 14px 12px 16px;
+  }
+  .ap-blue   { background: #eff6ff; border: 1.5px solid #bfdbfe; border-top: none; }
+  .ap-green  { background: #f0fdf4; border: 1.5px solid #bbf7d0; border-top: none; }
+  .ap-purple { background: #f5f3ff; border: 1.5px solid #ddd6fe; border-top: none; }
+
+  .src-card {
+    background: #fff;
+    border: 1.5px solid #bfdbfe;
+    border-radius: 7px;
+    padding: 9px 11px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .src-card:last-child { margin-bottom: 0; }
+  .src-icon {
+    width: 30px; height: 30px; border-radius: 6px;
+    background: #2563eb; color: #fff;
+    font-size: 10px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; text-align: center; line-height: 1.2;
+  }
+  .src-icon.oru { background: #dc2626; }
+  .src-icon.orm { background: #d97706; }
+  .src-label { font-size: 12px; font-weight: 700; color: #1f2328; line-height: 1.3; }
+  .src-sub   { font-size: 11px; color: #57606a; }
+
+  .ace-step {
+    background: #fff;
+    border: 1.5px solid #bbf7d0;
+    border-radius: 7px;
+    padding: 9px 11px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+  }
+  .ace-step:last-child { margin-bottom: 0; }
+  .ace-num {
+    min-width: 22px; height: 22px; border-radius: 50%;
+    background: #16a34a; color: #fff;
+    font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; margin-top: 1px;
+  }
+  .ace-title { font-size: 12px; font-weight: 700; color: #1f2328; line-height: 1.3; }
+  .ace-desc  { font-size: 11px; color: #57606a; margin-top: 1px; }
+  .ace-arrow { text-align: center; color: #16a34a; font-size: 16px; line-height: 1; margin: 2px 0; }
+
+  .ag-card {
+    background: #fff;
+    border: 1.5px solid #ddd6fe;
+    border-radius: 7px;
+    padding: 9px 11px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: flex-start;
+    gap: 9px;
+  }
+  .ag-card:last-child { margin-bottom: 0; }
+  .ag-icon {
+    min-width: 26px; height: 26px; border-radius: 6px;
+    color: #fff; font-size: 11px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .ag-c { background: #3b82d4; }
+  .ag-v { background: #16a34a; }
+  .ag-e { background: #d97706; }
+  .ag-s { background: #7c5cd8; }
+  .ag-title { font-size: 12px; font-weight: 700; color: #1f2328; line-height: 1.3; }
+  .ag-desc  { font-size: 11px; color: #57606a; margin-top: 1px; }
+  .ag-arrow { text-align: center; color: #7c3aed; font-size: 16px; line-height: 1; margin: 2px 0; }
+
+  .result-box {
+    background: #f5f3ff;
+    border: 1.5px solid #ddd6fe;
+    border-radius: 7px;
+    padding: 10px 12px;
+    margin-top: 6px;
+    font-size: 11px;
+    color: #57606a;
+    line-height: 1.6;
+  }
+  .result-box strong { display: block; font-size: 12px; color: #7c3aed; margin-bottom: 4px; }
+</style>
+
+<div class="arch-new">
+
+  <div class="arch-zones">
+    <div class="arch-zone-label az-blue">🏥 HL7 SOURCE</div>
+    <div class="arch-zone-label az-green">⚙️ IBM ACE INTEGRATION SERVER</div>
+    <div class="arch-zone-label az-purple">🤖 AI AGENT LAYER (NODE.JS)</div>
+  </div>
+
+  <div class="arch-panels">
+
+    <!-- ZONE 1: HL7 Sources -->
+    <div class="arch-panel ap-blue">
+      <div class="src-card">
+        <div class="src-icon">ADT</div>
+        <div>
+          <div class="src-label">ADT^A01 Admission</div>
+          <div class="src-sub">EHR / Hospital System</div>
+        </div>
+      </div>
+      <div class="src-card">
+        <div class="src-icon oru">ORU</div>
+        <div>
+          <div class="src-label">ORU^R01 Lab Result</div>
+          <div class="src-sub">LIS / Lab System</div>
+        </div>
+      </div>
+      <div class="src-card">
+        <div class="src-icon orm">ORM</div>
+        <div>
+          <div class="src-label">ORM^O01 Order</div>
+          <div class="src-sub">CPOE / Order System</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ZONE 2: IBM ACE Steps -->
+    <div class="arch-panel ap-green">
+      <div class="ace-step">
+        <div class="ace-num">1</div>
+        <div>
+          <div class="ace-title">HTTP Input — /hl7/ingest</div>
+          <div class="ace-desc">Receives raw HL7 on port 7080 via BLOB domain</div>
+        </div>
+      </div>
+      <div class="ace-arrow">↓</div>
+      <div class="ace-step">
+        <div class="ace-num">2</div>
+        <div>
+          <div class="ace-title">ESQL HL7Parser</div>
+          <div class="ace-desc">Tokenises pipe-delimited segments → LocalEnv tree</div>
+        </div>
+      </div>
+      <div class="ace-arrow">↓</div>
+      <div class="ace-step">
+        <div class="ace-num">3</div>
+        <div>
+          <div class="ace-title">Java HL7SegmentParser</div>
+          <div class="ace-desc">Builds typed MbElement tree + JSON summary</div>
+        </div>
+      </div>
+      <div class="ace-arrow">↓</div>
+      <div class="ace-step">
+        <div class="ace-num">4</div>
+        <div>
+          <div class="ace-title">ESQL HL7Validator</div>
+          <div class="ace-desc">Validates MSH &amp; PID required fields</div>
+        </div>
+      </div>
+      <div class="ace-arrow">↓</div>
+      <div class="ace-step">
+        <div class="ace-num">5</div>
+        <div>
+          <div class="ace-title">HTTP POST → AI Agent</div>
+          <div class="ace-desc">Sends JSON summary to :4000/process →</div>
+        </div>
+      </div>
+      <div class="ace-arrow">↓</div>
+      <div class="ace-step">
+        <div class="ace-num">6</div>
+        <div>
+          <div class="ace-title">MQ Route + ACK Builder</div>
+          <div class="ace-desc">Routes to ADT / ORU / ORM queue · returns AA or AE</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ZONE 3: AI Agents -->
+    <div class="arch-panel ap-purple">
+      <div class="ag-card">
+        <div class="ag-icon ag-c">C</div>
+        <div>
+          <div class="ag-title">ClassifierAgent</div>
+          <div class="ag-desc">Urgency · route · LLM reason</div>
+        </div>
+      </div>
+      <div class="ag-arrow">↓</div>
+      <div class="ag-card">
+        <div class="ag-icon ag-v">V</div>
+        <div>
+          <div class="ag-title">ValidatorAgent</div>
+          <div class="ag-desc">Rules + AI-assisted field checks</div>
+        </div>
+      </div>
+      <div class="ag-arrow">↓</div>
+      <div class="ag-card">
+        <div class="ag-icon ag-e">E</div>
+        <div>
+          <div class="ag-title">EnrichmentAgent</div>
+          <div class="ag-desc">FHIR lookup · allergies · encounters</div>
+        </div>
+      </div>
+      <div class="ag-arrow">↓</div>
+      <div class="ag-card">
+        <div class="ag-icon ag-s">S</div>
+        <div>
+          <div class="ag-title">SummaryAgent</div>
+          <div class="ag-desc">Granite LLM clinical narrative</div>
+        </div>
+      </div>
+      <div class="result-box">
+        <strong>↩ AgentResult JSON → back to ACE</strong>
+        status · urgency · route · validation<br>
+        enrichment · summary · allergyAlerts
+      </div>
+    </div>
+
+  </div><!-- /arch-panels -->
+</div><!-- /arch-new -->
+
+
+<h2>ACE + Agent Processing Pipeline</h2>
+<div class="pipeline">
+
+  <div class="pipeline-step">
+    <div class="step-num">1</div>
+    <div class="step-body">
+      <h4>HTTP Input — raw HL7 ingestion <span class="step-tag tag-http">HTTP</span></h4>
+      <p>ACE listens on <code>/hl7/ingest</code> (port 7080). The body is parsed using the <strong>BLOB domain</strong> — ACE does not need to understand HL7 syntax at this stage, it treats it as raw bytes.</p>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="step-num">2</div>
+    <div class="step-body">
+      <h4>ESQL HL7Parser — tokeniser <span class="step-tag tag-esql">ESQL</span></h4>
+      <p>Pure ESQL splits the pipe-delimited message into a <code>LocalEnvironment.HL7</code> element tree. Each segment (MSH, PID, OBX…) is indexed with fields and <code>^</code>-split components. No external JAR required.</p>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="step-num">3</div>
+    <div class="step-body">
+      <h4>Java HL7SegmentParser — structured parser <span class="step-tag tag-java">Java</span></h4>
+      <p>The <code>MbJavaComputeNode</code> subclass builds a typed <code>MbElement</code> tree, handles multi-occurrence segments (e.g. multiple OBX), and produces a compact JSON summary string for the AI agent.</p>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="step-num">4</div>
+    <div class="step-body">
+      <h4>ESQL HL7Validator — required field checks <span class="step-tag tag-esql">ESQL</span></h4>
+      <p>Validates MSH-3, MSH-9, MSH-10, MSH-11, MSH-12, PID-3, PID-5 and more. Writes a structured <code>validation</code> report into LocalEnvironment. Routes to the error queue if <code>isValid = false</code>.</p>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="step-num ai">5</div>
+    <div class="step-body">
+      <h4>AI Agent Pipeline — 4 agents <span class="step-tag tag-ai">watsonx.ai</span></h4>
+      <p>ACE's HTTP Request node POSTs the JSON summary to the Node.js agent on <code>:4000/process</code>. Four agents run: <strong>Classify → Validate → Enrich → Summarise</strong>. Returns an AgentResult that drives routing and ACK code.</p>
+    </div>
+  </div>
+
+  <div class="pipeline-step">
+    <div class="step-num">6</div>
+    <div class="step-body">
+      <h4>MQ Routing + ACK Builder <span class="step-tag tag-mq">MQ</span> <span class="step-tag tag-esql">ESQL</span></h4>
+      <p>Messages are routed to <code>HL7.ADT.IN</code>, <code>HL7.ORU.IN</code>, or <code>HL7.ORM.IN</code> MQ queues by message type. ESQL constructs a standards-compliant <strong>MSH+MSA ACK</strong> (AA or AE) returned to the sender.</p>
+    </div>
+  </div>
+
+</div>
+
+
+<h2>Four AI Agents</h2>
+<div class="agent-grid">
+
+  <div class="agent-card">
+    <h4><span class="agent-icon ic-classify">C</span> ClassifierAgent</h4>
+    <ul>
+      <li>Identifies message type &amp; trigger event</li>
+      <li>Assigns urgency: critical / high / medium / low</li>
+      <li>Scans OBX flags: LL HH AA → escalates</li>
+      <li>Determines routing target queue</li>
+      <li>LLM generates one-sentence reason</li>
+    </ul>
+  </div>
+
+  <div class="agent-card">
+    <h4><span class="agent-icon ic-validate">V</span> ValidatorAgent</h4>
+    <ul>
+      <li>Tier 1: deterministic required-field rules</li>
+      <li>MSH-3/9/10/11/12, PID-3/5 checks</li>
+      <li>PID-7 date format, PID-8 sex code</li>
+      <li>Tier 2: AI-assisted ICD-10 / OBX unit checks</li>
+      <li>Returns error/warning issues array</li>
+    </ul>
+  </div>
+
+  <div class="agent-card">
+    <h4><span class="agent-icon ic-enrich">E</span> EnrichmentAgent</h4>
+    <ul>
+      <li>FHIR patient demographics lookup (by MRN)</li>
+      <li>Prior encounter history (last 3)</li>
+      <li>Drug allergy cross-check for ORM orders</li>
+      <li>ReAct-style tool loop: call → observe → stop</li>
+      <li>Stub FHIR store for offline demo</li>
+    </ul>
+  </div>
+
+  <div class="agent-card">
+    <h4><span class="agent-icon ic-summary">S</span> SummaryAgent</h4>
+    <ul>
+      <li>Aggregates all prior agent results</li>
+      <li>Stub: deterministic template engine</li>
+      <li>Live: IBM Granite-13b clinical prompt</li>
+      <li>Outputs human-readable event narrative</li>
+      <li>Includes allergy alerts + critical flags</li>
+    </ul>
+  </div>
+
+</div>
+
+
+<h2>HL7 Message Types Supported</h2>
+<table>
+  <thead>
+    <tr><th>Code</th><th>Description</th><th>ACE Route</th><th>Urgency</th><th>Agent Actions</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>ADT^A01</strong></td>
+      <td>Patient Admission</td>
+      <td>HL7.ADT.IN</td>
+      <td><span class="urgency-high">High</span></td>
+      <td>Classify + FHIR enrich + Summarise</td>
+    </tr>
+    <tr>
+      <td><strong>ADT^A03</strong></td>
+      <td>Patient Discharge</td>
+      <td>HL7.ADT.IN</td>
+      <td><span class="urgency-medium">Medium</span></td>
+      <td>Classify + Audit log</td>
+    </tr>
+    <tr>
+      <td><strong>ADT^A08</strong></td>
+      <td>Update Demographics</td>
+      <td>HL7.ADT.IN</td>
+      <td><span class="urgency-low">Low</span></td>
+      <td>Validate + Enrich</td>
+    </tr>
+    <tr>
+      <td><strong>ORU^R01</strong></td>
+      <td>Unsolicited Lab Result</td>
+      <td>HL7.ORU.IN</td>
+      <td><span class="urgency-critical">Critical*</span></td>
+      <td>Classify + Flag scan + Alert + Summarise</td>
+    </tr>
+    <tr>
+      <td><strong>ORM^O01</strong></td>
+      <td>Medical Order</td>
+      <td>HL7.ORM.IN</td>
+      <td><span class="urgency-medium">Medium</span></td>
+      <td>Validate + Allergy check + Route</td>
+    </tr>
+    <tr>
+      <td><strong>ACK</strong></td>
+      <td>Acknowledgement</td>
+      <td>Back to sender</td>
+      <td><span class="urgency-low">None</span></td>
+      <td>Auto-generated (AA/AE) by ESQL</td>
+    </tr>
+  </tbody>
+</table>
+<p style="font-size:12px;color:#57606a;margin-top:-16px;margin-bottom:24px">* Escalated to <strong>critical</strong> when OBX abnormal flags LL/HH/AA detected → routed to <code>critical-alert-queue</code></p>
+
+
+<h2>Demo Pipeline Output (Stub Mode)</h2>
+<div class="demo-panel">
+  <span class="c-gray"># GET http://localhost:4000/demo — 3 sample messages processed</span><br /><br />
+
+  <span class="c-yellow">── Message 1: ADT^A01 Patient Admission ──────────────────</span><br />
+  <span class="c-blue">Event:</span>    <span class="c-white">Patient Admission (ADT^A01)</span><br />
+  <span class="c-blue">Urgency:</span>  <span class="c-yellow">HIGH</span><br />
+  <span class="c-blue">Patient:</span>  <span class="c-white">John D Smith | MRN: MRN001</span><br />
+  <span class="c-blue">DOB:</span> <span class="c-white">1968-04-15 | Sex: male</span><br />
+  <span class="c-blue">Conditions:</span> <span class="c-white">Hypertension, Type 2 Diabetes</span><br />
+  <span class="c-blue">Allergies:</span>  <span class="c-yellow">Penicillin, Sulfa</span><br />
+  <span class="c-green">✓ Message passed validation (0 warnings).</span><br />
+  <span class="c-blue">Route:</span>  → <span class="c-white">adt-queue</span><br /><br />
+
+  <span class="c-yellow">── Message 2: ORU^R01 Lab Result (Critical) ──────────────</span><br />
+  <span class="c-blue">Event:</span>    <span class="c-white">Lab Result (ORU^R01)</span><br />
+  <span class="c-blue">Urgency:</span>  <span class="c-red">CRITICAL</span><br />
+  <span class="c-red">🚨 CRITICAL LAB RESULTS:</span><br />
+  <span class="c-red">  - POTASSIUM: 6.8 mmol/L [Flag: HH]</span><br />
+  <span class="c-yellow">  - CREATININE: 2.1 mg/dL [Flag: H]</span><br />
+  <span class="c-green">✓ Message passed validation (0 warnings).</span><br />
+  <span class="c-blue">Route:</span>  → <span class="c-red">critical-alert-queue</span><br /><br />
+
+  <span class="c-yellow">── Message 3: ORM^O01 Medical Order ──────────────────────</span><br />
+  <span class="c-blue">Event:</span>    <span class="c-white">Medical Order (ORM^O01)</span><br />
+  <span class="c-blue">Urgency:</span>  <span class="c-blue">MEDIUM</span><br />
+  <span class="c-red">🚨 ALLERGY ALERT:</span><br />
+  <span class="c-red">  - Patient MRN001 has a documented allergy to Penicillin.</span><br />
+  <span class="c-red">    Order requires pharmacist review.</span><br />
+  <span class="c-green">✓ Message passed validation (0 warnings).</span><br />
+  <span class="c-blue">Route:</span>  → <span class="c-white">orders-api</span><br />
+</div>
+
+
+<h2>Test Suite Results — 16/16 Passing</h2>
+<div class="test-grid">
+  <div class="test-card">
+    <div class="test-num">4</div>
+    <div class="test-lbl">ClassifierAgent</div>
+    <div class="test-pass">✓ All pass</div>
+  </div>
+  <div class="test-card">
+    <div class="test-num">5</div>
+    <div class="test-lbl">ValidatorAgent</div>
+    <div class="test-pass">✓ All pass</div>
+  </div>
+  <div class="test-card">
+    <div class="test-num">4</div>
+    <div class="test-lbl">EnrichmentAgent</div>
+    <div class="test-pass">✓ All pass</div>
+  </div>
+  <div class="test-card">
+    <div class="test-num">3</div>
+    <div class="test-lbl">SummaryAgent</div>
+    <div class="test-pass">✓ All pass</div>
+  </div>
+</div>
+
+
+<h2>Project File Structure</h2>
+<div class="file-tree">
+<span class="ft-dir">hl7-ace-starter-kit/</span><br />
+├── <span class="ft-file">README.md</span><br />
+├── <span class="ft-dir">ace-flows/</span>                      <span class="ft-note">IBM ACE message flow definitions</span><br />
+│   └── <span class="ft-key">HL7IngestFlow.msgflow</span>        <span class="ft-note">HTTP entry → parse → validate → route → ACK</span><br />
+├── <span class="ft-dir">esql/</span>                           <span class="ft-note">ESQL compute node logic</span><br />
+│   ├── <span class="ft-key">HL7Parser.esql</span>              <span class="ft-note">Pipe-delimited tokeniser → LocalEnvironment.HL7 tree</span><br />
+│   ├── <span class="ft-key">HL7Validator.esql</span>           <span class="ft-note">MSH/PID required field validation rules</span><br />
+│   └── <span class="ft-key">HL7AckBuilder.esql</span>          <span class="ft-note">Generates HL7 AA / AE acknowledgement</span><br />
+├── <span class="ft-dir">java/</span><br />
+│   └── <span class="ft-key">HL7SegmentParser.java</span>       <span class="ft-note">MbJavaComputeNode — MbElement tree + JSON summary</span><br />
+├── <span class="ft-dir">agent/</span>                          <span class="ft-note">Node.js AI sidecar (no npm dependencies except dotenv)</span><br />
+│   ├── <span class="ft-key">index.js</span>                    <span class="ft-note">Express-like HTTP server: /process /classify /demo /health</span><br />
+│   ├── <span class="ft-key">config.js</span>                   <span class="ft-note">watsonx.ai config + stub mode toggle</span><br />
+│   ├── <span class="ft-key">demo-samples.js</span>             <span class="ft-note">Pre-parsed fixture messages for offline demo</span><br />
+│   ├── <span class="ft-dir">agents/</span><br />
+│   │   ├── <span class="ft-key">ClassifierAgent.js</span>      <span class="ft-note">urgency · route · LLM reason</span><br />
+│   │   ├── <span class="ft-key">ValidatorAgent.js</span>       <span class="ft-note">Tier-1 rules + watsonx tier-2 checks</span><br />
+│   │   ├── <span class="ft-key">EnrichmentAgent.js</span>      <span class="ft-note">FHIR lookup · allergy cross-check · prior encounters</span><br />
+│   │   ├── <span class="ft-key">SummaryAgent.js</span>         <span class="ft-note">Clinical narrative (stub template / Granite LLM)</span><br />
+│   │   └── <span class="ft-key">watsonxClient.js</span>        <span class="ft-note">IAM token + watsonx.ai REST wrapper (no SDK)</span><br />
+│   └── <span class="ft-dir">tools/</span><br />
+│       ├── <span class="ft-key">hl7Tools.js</span>             <span class="ft-note">LangChain-style tools: classify · flag-check · format</span><br />
+│       └── <span class="ft-key">fhirTools.js</span>            <span class="ft-note">FHIR R4 stubs: patient lookup · encounters · allergy</span><br />
+├── <span class="ft-dir">samples/</span>                        <span class="ft-note">Real HL7 v2.x test messages</span><br />
+│   ├── ADT_A01_admit.hl7<br />
+│   ├── ORU_R01_lab_result.hl7<br />
+│   └── ORM_O01_order.hl7<br />
+├── <span class="ft-dir">tests/</span><br />
+│   ├── <span class="ft-key">agent-test.test.js</span>          <span class="ft-note">Jest suite — 16 tests, all passing</span><br />
+│   └── test-ingest.sh                  <span class="ft-note">curl smoke tests (requires running ACE + agent)</span><br />
+└── <span class="ft-dir">deployment/</span><br />
+    ├── ace-server.yaml                 <span class="ft-note">ACE integration server config (queues, ports, JAR path)</span><br />
+    └── docker-compose.yml             <span class="ft-note">Local dev stack: MQ + Agent + (ACE commented)</span><br />
+</div>
+
+
+<h2>Key Design Decisions</h2>
+<ul class="decision-list">
+  <li>
+    <div class="dec-num">1</div>
+    <div class="dec-body">
+      <strong>No external HL7 library inside ACE</strong>
+      <span>Pure ESQL tokenisation keeps the BAR file lightweight. No unsupported third-party JARs inside the integration server. The Java Compute node uses only core ACE <code>MbJavaComputeNode</code> APIs.</span>
+    </div>
+  </li>
+  <li>
+    <div class="dec-num">2</div>
+    <div class="dec-body">
+      <strong>AI layer runs as a sidecar — outside ACE</strong>
+      <span>The Node.js agent communicates with ACE over a simple HTTP POST. ACE flows stay deterministic and independently deployable. The AI logic is testable with plain Jest without any ACE runtime.</span>
+    </div>
+  </li>
+  <li>
+    <div class="dec-num">3</div>
+    <div class="dec-body">
+      <strong>LangChain-style tool pattern without the framework</strong>
+      <span>Each agent registers tool objects with <code>name</code>, <code>description</code>, <code>parameters</code>, and <code>execute()</code>. This mirrors the LangChain pattern but requires zero additional dependencies — easy to replace with real LangChain later.</span>
+    </div>
+  </li>
+  <li>
+    <div class="dec-num">4</div>
+    <div class="dec-body">
+      <strong>Offline / stub mode for demo resilience</strong>
+      <span>Set <code>WATSONX_STUB=true</code> in <code>.env</code>. Every agent returns realistic deterministic responses without any API calls. The full pipeline — classify → validate → enrich → summarise — runs completely offline.</span>
+    </div>
+  </li>
+  <li>
+    <div class="dec-num">5</div>
+    <div class="dec-body">
+      <strong>Two-tier validation: rules first, AI second</strong>
+      <span>Deterministic required-field checks always run (fast, 100% reliable). AI validation is called only after tier-1 passes, avoiding noisy LLM output on structurally broken messages.</span>
+    </div>
+  </li>
+</ul>
+
+
+<h2>Quick Start</h2>
+<table>
+  <thead>
+    <tr><th>#</th><th>Step</th><th>Command</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>Start agent in stub mode</td>
+      <td><code>cd agent &amp;&amp; npm install &amp;&amp; WATSONX_STUB=true node index.js</code></td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Run Jest tests</td>
+      <td><code>node node_modules/jest-cli/bin/jest.js --rootDir=.. --forceExit</code></td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Hit the demo endpoint</td>
+      <td><code>curl http://localhost:4000/demo | jq .</code></td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>Deploy ACE flows</td>
+      <td><code>mqsipackagebar -w . -a hl7-starter.bar -k HL7IngestFlow</code></td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>Run smoke tests</td>
+      <td><code>bash tests/test-ingest.sh</code></td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>Docker dev stack</td>
+      <td><code>docker compose -f deployment/docker-compose.yml up -d</code></td>
+    </tr>
+  </tbody>
+</table>
+
+<hr class="divider" />
+
+<footer>Made with IBM Bob</footer>
+</body>
+</html>

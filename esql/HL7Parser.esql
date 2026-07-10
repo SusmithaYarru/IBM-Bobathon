@@ -1,0 +1,194 @@
+-- =============================================================================
+-- HL7Parser.esql
+-- IBM ACE ESQL — Tokenises raw HL7 v2.x pipe-delimited messages into a
+-- structured LocalEnvironment tree that downstream nodes can inspect.
+--
+-- Supports:  MSH  PID  PV1  OBR  OBX  NTE  AL1  DG1  ORC  PD1
+-- Author:    HL7 ACE Starter Kit
+-- =============================================================================
+
+BROKER SCHEMA com.ibm.hl7.starter
+
+-- ---------------------------------------------------------------------------
+-- Main compute module — called from HL7IngestFlow
+-- ---------------------------------------------------------------------------
+CREATE COMPUTE MODULE HL7_Parse_Message
+    CREATE FUNCTION Main() RETURNS BOOLEAN
+    BEGIN
+        -- Copy headers through unchanged
+        SET OutputRoot = InputRoot;
+
+        DECLARE rawHL7   CHARACTER FIELDVALUE(InputRoot.BLOB.BLOB);
+        DECLARE msgTree  REFERENCE TO OutputLocalEnvironment.HL7;
+
+        -- Guard: nothing to parse
+        IF rawHL7 IS NULL OR LENGTH(rawHL7) = 0 THEN
+            SET OutputLocalEnvironment.HL7.parseError = 'Empty or null HL7 body';
+            RETURN TRUE;
+        END IF;
+
+        -- Normalise line endings: 0x0D (CR), 0x0A (LF), or CRLF → newline token
+        DECLARE normalised CHARACTER REPLACE(REPLACE(rawHL7, X'0D0A', X'0A'), X'0D', X'0A');
+
+        -- Split into segments on newline
+        DECLARE segIdx    INTEGER 1;
+        DECLARE remaining CHARACTER normalised;
+        DECLARE segment   CHARACTER;
+
+        WHILE LENGTH(remaining) > 0 DO
+            DECLARE nlPos INTEGER POSITION(X'0A' IN remaining);
+            IF nlPos = 0 THEN
+                SET segment   = remaining;
+                SET remaining = '';
+            ELSE
+                SET segment   = SUBSTRING(remaining FROM 1 FOR nlPos - 1);
+                SET remaining = SUBSTRING(remaining FROM nlPos + 1);
+            END IF;
+
+            -- Skip blank segments
+            IF LENGTH(TRIM(segment)) > 0 THEN
+                CALL ParseSegment(segment, segIdx, OutputLocalEnvironment.HL7);
+                SET segIdx = segIdx + 1;
+            END IF;
+        END WHILE;
+
+        -- Promote key fields to LocalEnvironment root for easy downstream routing
+        SET OutputLocalEnvironment.HL7.messageType    =
+            FIELDVALUE(OutputLocalEnvironment.HL7.MSH[1].field[9].component[1]);
+        SET OutputLocalEnvironment.HL7.triggerEvent   =
+            FIELDVALUE(OutputLocalEnvironment.HL7.MSH[1].field[9].component[2]);
+        SET OutputLocalEnvironment.HL7.messageControl =
+            FIELDVALUE(OutputLocalEnvironment.HL7.MSH[1].field[10]);
+        SET OutputLocalEnvironment.HL7.patientId      =
+            FIELDVALUE(OutputLocalEnvironment.HL7.PID[1].field[3].component[1]);
+        SET OutputLocalEnvironment.HL7.patientName    =
+            FIELDVALUE(OutputLocalEnvironment.HL7.PID[1].field[5].component[2])
+            || ' ' ||
+            FIELDVALUE(OutputLocalEnvironment.HL7.PID[1].field[5].component[1]);
+
+        RETURN TRUE;
+    END;
+
+    -- -------------------------------------------------------------------------
+    -- ParseSegment: splits one segment line into fields and components
+    -- -------------------------------------------------------------------------
+    CREATE PROCEDURE ParseSegment(
+        IN  seg     CHARACTER,
+        IN  idx     INTEGER,
+        IN  parent  REFERENCE
+    )
+    BEGIN
+        -- First 3 chars = segment ID (e.g. MSH, PID, OBX)
+        DECLARE segId CHARACTER SUBSTRING(seg FROM 1 FOR 3);
+
+        -- MSH is special: field[1] IS the field separator char itself
+        DECLARE startPos INTEGER;
+        IF segId = 'MSH' THEN
+            SET startPos = 4;   -- field[1] = '|', so start splitting from pos 4
+        ELSE
+            SET startPos = 5;   -- skip "XXX|"
+        END IF;
+
+        DECLARE fieldPart CHARACTER SUBSTRING(seg FROM startPos);
+        DECLARE fieldIdx  INTEGER 1;
+        DECLARE remaining CHARACTER fieldPart;
+
+        -- For MSH, field[1] = field separator, seed it manually
+        IF segId = 'MSH' THEN
+            SET parent.{segId}[idx].field[1] = SUBSTRING(seg FROM 4 FOR 1);
+            SET fieldIdx = 2;
+        END IF;
+
+        WHILE LENGTH(remaining) > 0 DO
+            DECLARE pipePos INTEGER POSITION('|' IN remaining);
+            DECLARE field   CHARACTER;
+            IF pipePos = 0 THEN
+                SET field     = remaining;
+                SET remaining = '';
+            ELSE
+                SET field     = SUBSTRING(remaining FROM 1 FOR pipePos - 1);
+                SET remaining = SUBSTRING(remaining FROM pipePos + 1);
+            END IF;
+
+            -- Split field into components on '^'
+            IF POSITION('^' IN field) > 0 THEN
+                CALL ParseComponents(field, fieldIdx, parent.{segId}[idx]);
+            ELSE
+                SET parent.{segId}[idx].field[fieldIdx] = field;
+            END IF;
+
+            SET fieldIdx = fieldIdx + 1;
+        END WHILE;
+    END;
+
+    -- -------------------------------------------------------------------------
+    -- ParseComponents: splits a field on '^' into sub-tree components
+    -- -------------------------------------------------------------------------
+    CREATE PROCEDURE ParseComponents(
+        IN  fieldVal CHARACTER,
+        IN  fieldIdx INTEGER,
+        IN  segRef   REFERENCE
+    )
+    BEGIN
+        DECLARE compIdx   INTEGER 1;
+        DECLARE remaining CHARACTER fieldVal;
+
+        WHILE LENGTH(remaining) > 0 DO
+            DECLARE caretPos  INTEGER POSITION('^' IN remaining);
+            DECLARE component CHARACTER;
+            IF caretPos = 0 THEN
+                SET component = remaining;
+                SET remaining = '';
+            ELSE
+                SET component = SUBSTRING(remaining FROM 1 FOR caretPos - 1);
+                SET remaining = SUBSTRING(remaining FROM caretPos + 1);
+            END IF;
+
+            SET segRef.field[fieldIdx].component[compIdx] = component;
+            SET compIdx = compIdx + 1;
+        END WHILE;
+    END;
+
+END MODULE;
+
+-- ---------------------------------------------------------------------------
+-- Utility function: safely read a field from the parsed HL7 tree
+-- Usage: GET_HL7_FIELD(OutputLocalEnvironment.HL7, 'PID', 1, 3, 1)
+--        → PID segment 1, field 3, component 1
+-- ---------------------------------------------------------------------------
+CREATE FUNCTION GET_HL7_FIELD(
+    IN  hl7Root  REFERENCE,
+    IN  segId    CHARACTER,
+    IN  segOcc   INTEGER,
+    IN  fieldNum INTEGER,
+    IN  compNum  INTEGER
+) RETURNS CHARACTER
+BEGIN
+    DECLARE result CHARACTER;
+    IF compNum > 0 THEN
+        SET result = FIELDVALUE(hl7Root.{segId}[segOcc].field[fieldNum].component[compNum]);
+    ELSE
+        SET result = FIELDVALUE(hl7Root.{segId}[segOcc].field[fieldNum]);
+    END IF;
+    IF result IS NULL THEN SET result = ''; END IF;
+    RETURN result;
+END;
+
+-- ---------------------------------------------------------------------------
+-- Utility function: build a compact JSON-like string of key HL7 fields
+-- for logging and AI agent input
+-- ---------------------------------------------------------------------------
+CREATE FUNCTION HL7_TO_SUMMARY_JSON(IN hl7Root REFERENCE) RETURNS CHARACTER
+BEGIN
+    DECLARE msgType CHARACTER FIELDVALUE(hl7Root.messageType);
+    DECLARE evtCode CHARACTER FIELDVALUE(hl7Root.triggerEvent);
+    DECLARE ctrlId  CHARACTER FIELDVALUE(hl7Root.messageControl);
+    DECLARE ptId    CHARACTER FIELDVALUE(hl7Root.patientId);
+    DECLARE ptName  CHARACTER FIELDVALUE(hl7Root.patientName);
+
+    RETURN '{"messageType":"' || COALESCE(msgType,'') ||
+           '","triggerEvent":"' || COALESCE(evtCode,'') ||
+           '","messageControlId":"' || COALESCE(ctrlId,'') ||
+           '","patientId":"' || COALESCE(ptId,'') ||
+           '","patientName":"' || COALESCE(ptName,'') || '"}';
+END;

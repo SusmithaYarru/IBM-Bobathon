@@ -1,0 +1,59 @@
+---
+# =============================================================================
+# ace-server.yaml — IBM ACE Integration Server Configuration
+# Defines the HL7 Starter Kit integration server settings
+# Reference:  https://www.ibm.com/docs/en/app-connect/12.0?topic=servers-creating-integration-server
+# =============================================================================
+
+BrokerRegistry:
+  mqsiprofile: ''
+
+RestAdminListener:
+  port: 7600
+  requiresToken: false
+
+#
+# HTTP listener for the HL7 Ingest flow
+# Flows bind on /hl7/ingest  (see HL7IngestFlow.msgflow URLSelector)
+#
+HTTPConnector:
+  ListenerPort: 7080
+  useSSL: false
+
+#
+# MQ connectivity for HL7 routing queues
+# Update QueueManagerName for your environment
+#
+MQConnectivity:
+  QueueManagerName: QM1
+  BindingsMode: auto
+
+#
+# HL7-specific MQ queue names (create these in MQ before deploying)
+#
+# Required queues:
+#   HL7.ADT.IN     — Inbound ADT events (admissions, discharges, transfers)
+#   HL7.ORU.IN     — Inbound lab results
+#   HL7.ORM.IN     — Inbound orders
+#   HL7.ERROR      — Dead-letter / error queue
+#   HL7.ACK.OUT    — Optional: outbound ACKs if using MQ transport
+#
+
+Statistics:
+  Snapshot:
+    active: true
+    publicationOn: active
+    outputFormat: json
+    threadDataLevel: basic
+    resourceStatisticsOn: true
+  Archive:
+    active: false
+
+#
+# Java shared classes — add HL7SegmentParser.jar path here
+#
+BrokerData:
+  SharedClassPath: '${BROKER_DATA_PATH}/shared-classes/hl7-segment-parser.jar'
+
+Tracing:
+  level: none

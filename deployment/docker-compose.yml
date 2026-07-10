@@ -1,0 +1,116 @@
+# =============================================================================
+# docker-compose.yml — HL7 ACE Starter Kit — Local Development Stack
+#
+# Services:
+#   mq      — IBM MQ 9.x (community edition)
+#   ace     — IBM ACE 12.x (developer edition)
+#   agent   — Node.js AI Agent Layer (stub mode by default)
+#
+# Usage:
+#   docker compose up -d
+#   # Wait ~30s for ACE and MQ to start
+#   cd tests && bash test-ingest.sh
+#
+# =============================================================================
+
+version: '3.9'
+
+networks:
+  hl7net:
+    driver: bridge
+
+volumes:
+  mq-data:
+  ace-data:
+
+services:
+
+  # ─── IBM MQ (community) ────────────────────────────────────────────────────
+  mq:
+    image: icr.io/ibm-messaging/mq:latest
+    container_name: hl7-mq
+    hostname: mq
+    networks:
+      - hl7net
+    ports:
+      - "1414:1414"     # MQ listener
+      - "9443:9443"     # MQ Console
+    volumes:
+      - mq-data:/mnt/mqm
+    environment:
+      LICENSE: accept
+      MQ_QMGR_NAME: QM1
+    healthcheck:
+      test: ["CMD", "dspmq", "-m", "QM1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    command: >
+      bash -c "
+        /docker-entrypoint.sh &
+        sleep 20 &&
+        runmqsc QM1 << EOF
+          DEFINE QLOCAL(HL7.ADT.IN)   DEFPSIST(YES)
+          DEFINE QLOCAL(HL7.ORU.IN)   DEFPSIST(YES)
+          DEFINE QLOCAL(HL7.ORM.IN)   DEFPSIST(YES)
+          DEFINE QLOCAL(HL7.ERROR)    DEFPSIST(YES)
+          DEFINE QLOCAL(HL7.ACK.OUT)  DEFPSIST(YES)
+          END
+      EOF
+        wait
+      "
+
+  # ─── AI Agent Layer (Node.js) ─────────────────────────────────────────────
+  agent:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: hl7-agent
+    hostname: agent
+    networks:
+      - hl7net
+    ports:
+      - "4000:4000"
+    environment:
+      WATSONX_STUB: "true"           # Set to false + add API key for live mode
+      WATSONX_API_KEY: ""
+      WATSONX_PROJECT_ID: ""
+      AGENT_PORT: "4000"
+      LOG_LEVEL: "info"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:4000/health',r=>{process.exit(r.statusCode===200?0:1)})"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ─── IBM ACE (developer edition) ──────────────────────────────────────────
+  # Note: IBM ACE requires licence acceptance. Pull from IBM container registry.
+  # Uncomment and configure once you have pulled the image.
+  #
+  # ace:
+  #   image: cp.icr.io/cp/appc/ace:12.0.12.0-r1
+  #   container_name: hl7-ace
+  #   hostname: ace
+  #   networks:
+  #     - hl7net
+  #   ports:
+  #     - "7080:7080"    # HTTP flows
+  #     - "7600:7600"    # Admin REST API
+  #   volumes:
+  #     - ace-data:/home/aceuser/ace-server
+  #     - ./deployment/ace-server.yaml:/home/aceuser/ace-server/server.conf.yaml
+  #     - ./java/hl7-segment-parser.jar:/home/aceuser/ace-server/shared-classes/hl7-segment-parser.jar
+  #   environment:
+  #     LICENSE: accept
+  #     ACE_SERVER_NAME: HL7StarterKit
+  #     MQ_QMGR_HOST: mq
+  #     MQ_QMGR_PORT: 1414
+  #     MQ_QMGR_NAME: QM1
+  #     AI_AGENT_URL: http://agent:4000
+  #   depends_on:
+  #     mq:
+  #       condition: service_healthy
+  #     agent:
+  #       condition: service_healthy

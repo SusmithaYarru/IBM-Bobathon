@@ -1,0 +1,24 @@
+{
+  "name": "hl7-ace-agent-layer",
+  "version": "1.0.0",
+  "description": "Agentic AI orchestration layer for IBM ACE HL7 Enablement Starter Kit",
+  "main": "index.js",
+  "scripts": {
+    "start":        "node index.js",
+    "start:stub":   "WATSONX_STUB=true node index.js",
+    "test":         "node --experimental-vm-modules node_modules/.bin/jest --forceExit",
+    "demo":         "curl -s http://localhost:4000/demo | node -e \"const d=require('fs').readFileSync('/dev/stdin','utf8'); const r=JSON.parse(d); r.results.forEach(m=>{ console.log('\\n---'); console.log(m.summary); });\""
+  },
+  "keywords": ["hl7", "ibm-ace", "watsonx", "healthcare", "agentic-ai"],
+  "license": "Apache-2.0",
+  "dependencies": {
+    "dotenv": "^16.4.5"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/**/*.test.js", "**/?(*.)+(spec|test).js"]
+  }
+}

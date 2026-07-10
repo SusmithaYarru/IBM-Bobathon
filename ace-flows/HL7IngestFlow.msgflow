@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  HL7IngestFlow.msgflow
+  IBM App Connect Enterprise — HL7 v2.x Ingestion Message Flow
+
+  Entry point for all incoming HL7 messages over HTTP.
+  Pipeline:
+    HTTP Input → BLOB Domain → HL7 ESQL Parser → HL7 Java Segment Parser
+              → HL7 Validator → AI Agent HTTP Request → Route by Status
+              → ACK Builder → HTTP Reply
+
+  Listener: HTTP on /hl7/ingest  (port 7080, configured in server.conf.yaml)
+-->
+<ecore:EPackage
+    xmlns:ecore="http://www.eclipse.org/emf/2002/Ecore"
+    xmlns:com.ibm.mq.acl="http://www.ibm.mq.acl/Flow"
+    name="HL7IngestFlow">
+
+  <msgFlows>
+    <flow name="HL7IngestFlow"
+          description="Receives raw HL7 v2.x messages via HTTP, parses, validates, forwards to AI Agent, and sends ACK">
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           NODE 1: HTTP Input
+           Listens on /hl7/ingest
+           Parses body as raw BLOB (HL7 is not XML/JSON)
+      ═══════════════════════════════════════════════════════════════ -->
+      <nodes xsi:type="HTTPInput"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             name="HTTP_Input_HL7"
+             URLSelector="/hl7/ingest"
+             buildTree="true"
+             messageDomain="BLOB"
+             messageSet=""
+             description="Receive raw HL7 v2.x message via HTTP POST">
+        <terminals>
+          <terminal name="Out" propagateTo="ESQL_HL7_Parser"/>
+        </terminals>
+      </nodes>
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           NODE 2: ESQL Compute — HL7 Parser
+           Tokenises the pipe-delimited HL7 blob into LocalEnvironment.HL7
+           References:  esql/HL7Parser.esql :: HL7_Parse_Message
+      ═══════════════════════════════════════════════════════════════ -->
+      <nodes xsi:type="ComputeNode"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             name="ESQL_HL7_Parser"
+             computeExpression="esql:com.ibm.hl7.starter.HL7_Parse_Message"
+             description="ESQL HL7 tokeniser — populates LocalEnvironment.HL7">
+        <terminals>
+          <terminal name="Out"     propagateTo="Java_Segment_Parser"/>
+          <terminal name="Failure" propagateTo="Error_Handler"/>
+        </terminals>
+      </nodes>
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           NODE 3: Java Compute — Segment Parser
+           Builds structured MbElement tree and JSON summary string
+           References:  java/HL7SegmentParser.java
+      ═══════════════════════════════════════════════════════════════ -->
+      <nodes xsi:type="JavaComputeNode"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             name="Java_Segment_Parser"
+             javaClass="com.ibm.hl7.starter.HL7SegmentParser"
+             description="Java compute — structured segment parser + JSON summary builder">
+        <terminals>
+          <terminal name="out"     propagateTo="ESQL_HL7_Validator"/>
+          <terminal name="failure" propagateTo="Error_Handler"/>
+        </terminals>
+      </nodes>
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           NODE 4: ESQL Compute — HL7 Validator
+           Checks required fields, writes validation.isValid to LocalEnv
+           References:  esql/HL7Validator.esql :: HL7_Validate_Message
+      ═══════════════════════════════════════════════════════════════ -->
+      <nodes xsi:type="ComputeNode"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             name="ESQL_HL7_Validator"
+             computeExpression="esql:com.ibm.hl7.starter.HL7_Validate_Message"
+             description="ESQL validator — required field checks, writes validation report">
+        <terminals>
+          <terminal name="Out"     propagateTo="AI_Agent_Request"/>
+          <terminal name="Failure" propagateTo="Error_Handler"/>
+        </terminals>
+      </nodes>
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           NODE 5: HTTP Request — AI Agent Sidecar
+           Posts the JSON summary to the Node.js agent layer on port 4000.
+           URL is set from LocalEnvironment or hardcoded to localhost:4000.
+           Timeout: 10s (clinical systems expect fast ACK)
+      ═══════════════════════════════════════════════════════════════ -->
+      <nodes xsi:type="HTTPRequest"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             name="AI_Agent_Request"
+             requestURL="http://localhost:4000/process"
+             httpMethod="POST"
+             contentType="application/json"
+             timeout="10000"
+             description="Call AI Agent sidecar with HL7 JSON summary">
+        <!-- ESQL sets the body to LocalEnvironment.HL7.jsonSummary before this node -->
+        <terminals>
+          <terminal name="Out"     propagateTo="Route_By_Status"/>
+          <terminal name="Failure" propagateTo="ESQL_HL7_Ack_Builder"/>
+        </terminals>
+      </nodes>
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           NODE 6: Route — Branch on validation / AI result
+      ═══════════════════════════════════════════════════════════════ -->
+      <nodes xsi:type="RouteNode"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             name="Route_By_Status"
+             description="Route to downstream flow based on message type">
+        <filterTable>
+          <row filterExpression="$LocalEnvironment/HL7/messageType = 'ADT'" propagateTo="MQ_Output_ADT"/>
+          <row filterExpression="$LocalEnvironment/HL7/messageType = 'ORU'" propagateTo="MQ_Output_ORU"/>
+          <row filterExpression="$LocalEnvironment/HL7/messageType = 'ORM'" propagateTo="MQ_Output_ORM"/>
+        </filterTable>
+        <terminals>
+          <terminal name="Default" propagateTo="ESQL_HL7_Ack_Builder"/>
+        </terminals>
+      </nodes>
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           NODE 7a/b/c: MQ Output — per message type
+      ═══════════════════════════════════════════════════════════════ -->
+      <nodes xsi:type="MQOutput"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             name="MQ_Output_ADT"
+             queueName="HL7.ADT.IN"
+             description="Route ADT messages to MQ queue">
+        <terminals>
+          <terminal name="Out" propagateTo="ESQL_HL7_Ack_Builder"/>
+        </terminals>
+      </nodes>
+
+      <nodes xsi:type="MQOutput"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             name="MQ_Output_ORU"
+             queueName="HL7.ORU.IN"
+             description="Route ORU lab results to MQ queue">
+        <terminals>
+          <terminal name="Out" propagateTo="ESQL_HL7_Ack_Builder"/>
+        </terminals>
+      </nodes>
+
+      <nodes xsi:type="MQOutput"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             name="MQ_Output_ORM"
+             queueName="HL7.ORM.IN"
+             description="Route ORM orders to MQ queue">
+        <terminals>
+          <terminal name="Out" propagateTo="ESQL_HL7_Ack_Builder"/>
+        </terminals>
+      </nodes>
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           NODE 8: ESQL Compute — ACK Builder
+           Generates HL7 AA or AE acknowledgement string
+           References:  esql/HL7AckBuilder.esql :: HL7_Build_Ack
+      ═══════════════════════════════════════════════════════════════ -->
+      <nodes xsi:type="ComputeNode"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             name="ESQL_HL7_Ack_Builder"
+             computeExpression="esql:com.ibm.hl7.starter.HL7_Build_Ack"
+             description="Construct HL7 ACK (AA/AE) response">
+        <terminals>
+          <terminal name="Out"     propagateTo="HTTP_Reply"/>
+          <terminal name="Failure" propagateTo="Error_Handler"/>
+        </terminals>
+      </nodes>
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           NODE 9: HTTP Reply — send ACK back to sender
+      ═══════════════════════════════════════════════════════════════ -->
+      <nodes xsi:type="HTTPReply"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             name="HTTP_Reply"
+             description="Return HL7 ACK to calling system"/>
+
+      <!-- ═══════════════════════════════════════════════════════════════
+           NODE 10: Error Handler
+      ═══════════════════════════════════════════════════════════════ -->
+      <nodes xsi:type="MQOutput"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             name="Error_Handler"
+             queueName="HL7.ERROR"
+             description="Route failed messages to error queue for investigation"/>
+
+    </flow>
+  </msgFlows>
+</ecore:EPackage>

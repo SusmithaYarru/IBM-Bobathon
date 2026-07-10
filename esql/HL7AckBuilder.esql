@@ -1,0 +1,57 @@
+-- =============================================================================
+-- HL7AckBuilder.esql
+-- IBM ACE ESQL — Constructs an HL7 v2.x ACK message (AA or AE)
+-- based on the validation result stored in LocalEnvironment.HL7.validation
+-- =============================================================================
+
+BROKER SCHEMA com.ibm.hl7.starter
+
+CREATE COMPUTE MODULE HL7_Build_Ack
+    CREATE FUNCTION Main() RETURNS BOOLEAN
+    BEGIN
+        -- Read incoming parsed metadata
+        DECLARE hl7        REFERENCE TO InputLocalEnvironment.HL7;
+        DECLARE isValid    BOOLEAN   FIELDVALUE(hl7.validation.isValid);
+        DECLARE ackCode    CHARACTER;
+        DECLARE errText    CHARACTER '';
+
+        IF isValid IS NULL OR isValid = TRUE THEN
+            SET ackCode = 'AA';   -- Application Accept
+        ELSE
+            SET ackCode = 'AE';   -- Application Error
+            -- Collect first error message
+            SET errText = COALESCE(FIELDVALUE(hl7.validation.issue[1].message), 'Validation failed');
+        END IF;
+
+        -- Build ACK segments
+        DECLARE sendApp   CHARACTER COALESCE(FIELDVALUE(hl7.MSH[1].field[5]), 'ACE-HL7-KIT');
+        DECLARE sendFac   CHARACTER COALESCE(FIELDVALUE(hl7.MSH[1].field[6]), 'IBM-ACE');
+        DECLARE rcvApp    CHARACTER COALESCE(FIELDVALUE(hl7.MSH[1].field[3]), 'SENDER');
+        DECLARE rcvFac    CHARACTER COALESCE(FIELDVALUE(hl7.MSH[1].field[4]), 'SENDER');
+        DECLARE ctrlId    CHARACTER COALESCE(FIELDVALUE(hl7.messageControl),  'UNKNOWN');
+        DECLARE procId    CHARACTER COALESCE(FIELDVALUE(hl7.MSH[1].field[11]),'P');
+        DECLARE versionId CHARACTER COALESCE(FIELDVALUE(hl7.MSH[1].field[12]),'2.5.1');
+        DECLARE msgDT     CHARACTER CAST(CURRENT_TIMESTAMP AS CHARACTER FORMAT 'yyyyMMddHHmmss');
+        DECLARE ackCtrl   CHARACTER 'ACK-' || msgDT;
+
+        -- Compose ACK string — HL7 segments separated by CR (0x0D)
+        DECLARE ackMsg CHARACTER
+            'MSH|^~\&|' || sendApp || '|' || sendFac || '|'
+                         || rcvApp  || '|' || rcvFac  || '|'
+                         || msgDT   || '||ACK|' || ackCtrl || '|'
+                         || procId  || '|' || versionId || X'0D'
+            || 'MSA|' || ackCode || '|' || ctrlId || '|' || errText || X'0D';
+
+        -- Write ACK to output as plain text blob
+        SET OutputRoot.BLOB.BLOB = CAST(ackMsg AS BLOB CCSID 1208);
+
+        -- Set HTTP response code
+        SET OutputLocalEnvironment.Destination.HTTP.ReplyStatusCode =
+            CASE ackCode WHEN 'AA' THEN 200 ELSE 400 END;
+
+        -- Propagate Content-Type header
+        SET OutputRoot.HTTPResponseHeader."Content-Type" = 'application/hl7-v2; charset=utf-8';
+
+        RETURN TRUE;
+    END;
+END MODULE;
